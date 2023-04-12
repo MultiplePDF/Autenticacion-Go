@@ -76,7 +76,8 @@ func main() {
 	// Endpoint para reiniciar contraseña
 	//router.HandleFunc("/reset/{token}", ResetPassword).Methods("POST")
 
-	log.Fatal(http.ListenAndServe(":8000", router))
+	fmt.Println("Servidor iniciado...")
+	log.Fatal(http.ListenAndServe(":4000", router))
 }
 
 // Usuario representa la estructura de datos para un usuario
