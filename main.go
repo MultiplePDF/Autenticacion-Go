@@ -82,6 +82,7 @@ func main() {
 
 // Usuario representa la estructura de datos para un usuario
 type Usuario struct {
+	ID       string `json:"_id,omitempty"`
 	Nombre   string `json:"nombre,omitempty"`
 	Apellido string `json:"apellido,omitempty"`
 	Email    string `json:"email,omitempty"`
@@ -180,8 +181,15 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
-	// Retorna el ID del usuario creado
-	respondWithJSON(w, http.StatusOK, bson.M{"id": result.InsertedID})
+	// Genera un nuevo token JWT
+	token, err := generarTokenJWT(result.InsertedID.(string))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
+		return
+	}
+
+	// Retorna el token JWT
+	respondWithJSON(w, http.StatusOK, Token{Token: token})
 }
 
 // Inicia sesión de un usuario y genera un token JWT
@@ -218,7 +226,7 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Genera un nuevo token JWT
-	token, err := generarTokenJWT(resultado.Email)
+	token, err := generarTokenJWT(resultado.ID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
