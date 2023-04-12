@@ -13,6 +13,7 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
@@ -82,11 +83,11 @@ func main() {
 
 // Usuario representa la estructura de datos para un usuario
 type Usuario struct {
-	ID       string `json:"_id,omitempty"`
-	Nombre   string `json:"nombre,omitempty"`
-	Apellido string `json:"apellido,omitempty"`
-	Email    string `json:"email,omitempty"`
-	Password string `json:"password,omitempty"`
+	ID       primitive.ObjectID `bson:"_id" json:"id,omitempty"`
+	Nombre   string             `json:"nombre,omitempty"`
+	Apellido string             `json:"apellido,omitempty"`
+	Email    string             `json:"email,omitempty"`
+	Password string             `json:"password,omitempty"`
 }
 
 // Token representa la estructura de datos para un token JWT
@@ -226,7 +227,7 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Genera un nuevo token JWT
-	token, err := generarTokenJWT(resultado.ID)
+	token, err := generarTokenJWT((resultado.ID).Hex())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
