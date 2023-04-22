@@ -21,22 +21,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte(`-----BEGIN RSA PRIVATE KEY-----
-MIICXQIBAAKBgQDDo9KAQ+DUi2Xqi5SqkqSkhP3/T0rofHL4LdRn8lAb6nJ5gy2L
-Ca64KyYky1VrR4CZH286cQDHUiuqSmtRAxyds0I+qtqMDiiclv3imW9TMVOCxVCP
-JVJv0DyGgGHwbOgvA2vdR5i/TSqRDqua0qAl/dBXJyqgV9pMjzQGDfgKswIDAQAB
-AoGAWTZSHjVVx/ZNIjhGMcYvF+qhXJQO55cgYjWb306q4x/01Z5Q3U8sAkWC3lJu
-gD4Z0Tl5Yh/3p+y7hqrq5wVRPXcniwGrepEdgyObJ54U4SW7k4XHaRKUlYGmG5jl
-960TYPGNAPjDSTfy8X4lktMRMQPu6u53W07Aoq3POD+Jr5kCQQD45tthShRlF40l
-KfW+S4Hhhe62HkQszNfZnRiIFoPzhCuGUUgqlWw7DQXoOHw84YO/ZlMI6uWez6nq
-WmaOOMBVAkEAyTgemhudQJNo2Udpk9KBbUx5tO9vZx0yawGNjaZHuZXIbPCe8wT4
-J+6bELvfSLV+MkAwSmWCFRXladavMb6G5wJBAN6PRvEKlYwDcCEgEO4UhFGNOfM8
-wwcwL34Ve78MKvbPYz/aZGY3cCypK3QHNggWOoEl1O+vYp0L4Up9hSB83HUCQCi3
-J1INlmMzsLqOfamApdnE6LeY31ThDouic88ev1KpITYR9ke8UK5b1JqtOUAQIWnv
-nRXgtlKn7JTe8PJC2C8CQQC0cHFdQEGeYpbNbJG57oQgLK1afdBOYuc5E8wgsl9x
-+d7ZCcc93ltHw+Owv6Qh6IMYt8yaoPtVHZpmkzqQcugI
------END RSA PRIVATE KEY-----`) // Clave secreta para JWT
-
 var (
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
@@ -90,6 +74,14 @@ type UserToJson struct {
 	Email           string `json:"email,omitempty"`
 	Password        string `json:"password,omitempty"`
 	ConfirmPassword string `json:"confirm_password,omitempty"`
+}
+
+type UserMongoDB struct {
+	ID       string
+	Name     string
+	LastName string
+	Email    string
+	Password string
 }
 
 // Token representa la estructura de datos para un token JWT
@@ -185,7 +177,8 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
-	newUser := UserToJson{
+	newUser := UserMongoDB{
+		ID:       hashEmail(user.Email),
 		Name:     user.Name,
 		LastName: user.LastName,
 		Email:    user.Email,
@@ -251,7 +244,7 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Genera un nuevo token JWT
-	token, err := generarTokenJWT(resultado.Email)
+	token, err := generarTokenJWT(hashEmail(resultado.Email))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
@@ -264,13 +257,13 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 // Genera un token JWT para el ID de usuario dado
 func generarTokenJWT(userEmail string) (string, error) {
 	// Crea el token con el algoritmo HS256 y la clave secreta
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"sub": userEmail,
 		"exp": time.Now().Add(time.Hour * 1).Unix(), // Expira en 1 hora
 	})
 
 	// Firma el token con la clave secreta
-	tokenString, err := token.SignedString(jwtSecret)
+	tokenString, err := token.SignedString(privateKey)
 	if err != nil {
 		return "", err
 	}
@@ -281,7 +274,7 @@ func generarTokenJWT(userEmail string) (string, error) {
 // Función para validar un token JWT
 func validateToken_(tokenString string) (bool, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
+		return publicKey, nil
 	})
 	if err != nil {
 		return false, err
