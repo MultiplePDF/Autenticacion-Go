@@ -49,13 +49,13 @@ func main() {
 	router := mux.NewRouter()
 
 	// Endpoint para registrar un nuevo usuario
-	router.HandleFunc("/auth/register", crearUsuario).Methods("POST")
+	router.HandleFunc("/auth/register", register).Methods("POST")
 
 	// Endpoint para iniciar sesión
-	router.HandleFunc("/auth/login", iniciarSesion).Methods("POST")
+	router.HandleFunc("/auth/login", login).Methods("POST")
 
 	// Endopoint para validar token
-	router.HandleFunc("/auth/validate", validateToken).Methods("GET")
+	router.HandleFunc("/auth/get-user-details", getUserDetails).Methods("GET")
 
 	// Endpoint para olvidar contraseña
 	//router.HandleFunc("/forgot", ForgotPassword).Methods("POST")
@@ -77,11 +77,13 @@ type UserToJson struct {
 }
 
 type UserMongoDB struct {
-	ID       string
-	Name     string
-	LastName string
-	Email    string
-	Password string
+	ID        string    `json:"id_user,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	LastName  string    `json:"lastname,omitempty"`
+	Email     string    `json:"email,omitempty"`
+	Password  string    `json:"password,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"update_at,omitempty"`
 }
 
 // Token representa la estructura de datos para un token JWT
@@ -103,7 +105,7 @@ func mongoDBConfig() MongoDBConfig {
 		CollectionName: "users",
 	}
 }
-func conectarMongoDB() (*mongo.Client, error) {
+func conectMongoDB() (*mongo.Client, error) {
 	// Obtener la configuración de MongoDB
 	config := mongoDBConfig()
 
@@ -130,7 +132,7 @@ func conectarMongoDB() (*mongo.Client, error) {
 }
 
 // Crea un nuevo usuario en la base de datos
-func crearUsuario(w http.ResponseWriter, r *http.Request) {
+func register(w http.ResponseWriter, r *http.Request) {
 	var user UserToJson
 	err := decodeJSONBody(w, r, &user)
 	if err != nil {
@@ -142,6 +144,10 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Todos los campos son obligatorios!")
 		return
 	}
+	if len(user.Password) < 8 {
+		respondWithError(w, http.StatusBadRequest, "La contraseña debe tener más de 8 caracteres")
+		return
+	}
 
 	if user.Password != user.ConfirmPassword {
 		respondWithError(w, http.StatusBadRequest, "No coinciden las contraseñas")
@@ -149,7 +155,7 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Conecta a la base de datos
-	client, err := conectarMongoDB()
+	client, err := conectMongoDB()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -178,11 +184,13 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newUser := UserMongoDB{
-		ID:       hashEmail(user.Email),
-		Name:     user.Name,
-		LastName: user.LastName,
-		Email:    user.Email,
-		Password: string(hashedPassword),
+		ID:        hashEmail(user.Email),
+		Name:      user.Name,
+		LastName:  user.LastName,
+		Email:     user.Email,
+		Password:  string(hashedPassword),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	// Inserta el usuario en la colección
@@ -200,7 +208,7 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 
 	// Retorna el token
 
-	tokenString, err := generarTokenJWT(hashEmail(user.Email))
+	tokenString, err := generateTokenJWT(hashEmail(user.Email))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
@@ -211,16 +219,16 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 }
 
 // Inicia sesión de un usuario y genera un token JWT
-func iniciarSesion(w http.ResponseWriter, r *http.Request) {
-	var usuario UserToJson
-	err := decodeJSONBody(w, r, &usuario)
+func login(w http.ResponseWriter, r *http.Request) {
+	var user UserToJson
+	err := decodeJSONBody(w, r, &user)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Datos inválidos")
 		return
 	}
 
 	// Conecta a la base de datos
-	client, err := conectarMongoDB()
+	client, err := conectMongoDB()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -228,7 +236,7 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 
 	// Busca el usuario por email
 	collection := client.Database(mongoDBConfig().DBName).Collection(mongoDBConfig().CollectionName)
-	filter := bson.M{"email": usuario.Email}
+	filter := bson.M{"email": user.Email}
 	var resultado UserToJson
 	err = collection.FindOne(context.Background(), filter).Decode(&resultado)
 	if err != nil {
@@ -237,14 +245,14 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Compara la contraseña ingresada con la almacenada en la base de datos
-	err = bcrypt.CompareHashAndPassword([]byte(resultado.Password), []byte(usuario.Password))
+	err = bcrypt.CompareHashAndPassword([]byte(resultado.Password), []byte(user.Password))
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Email o contraseña incorrectos")
 		return
 	}
 
 	// Genera un nuevo token JWT
-	token, err := generarTokenJWT(hashEmail(resultado.Email))
+	token, err := generateTokenJWT(hashEmail(resultado.Email))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
@@ -255,11 +263,11 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 }
 
 // Genera un token JWT para el ID de usuario dado
-func generarTokenJWT(userEmail string) (string, error) {
+func generateTokenJWT(userEmail string) (string, error) {
 	// Crea el token con el algoritmo HS256 y la clave secreta
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"sub": userEmail,
-		"exp": time.Now().Add(time.Hour * 1).Unix(), // Expira en 1 hora
+		"exp": time.Now().Add(time.Hour * 24).Unix(), // Expira en 24 horas
 	})
 
 	// Firma el token con la clave secreta
@@ -271,38 +279,79 @@ func generarTokenJWT(userEmail string) (string, error) {
 	return tokenString, nil
 }
 
-// Función para validar un token JWT
-func validateToken_(tokenString string) (bool, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return publicKey, nil
-	})
+func getUserByID(userID string) (UserMongoDB, error) {
+	// Conecta a la base de datos
+	client, err := conectMongoDB()
 	if err != nil {
-		return false, err
+		log.Fatal(err)
+	}
+	defer client.Disconnect(context.Background())
+
+	// Busca el usuario por email
+	collection := client.Database(mongoDBConfig().DBName).Collection(mongoDBConfig().CollectionName)
+	filter := bson.M{"id": userID}
+
+	var user UserMongoDB
+	err = collection.FindOne(context.Background(), filter).Decode(&user)
+	if err != nil {
+		return UserMongoDB{}, err
 	}
 
-	if _, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		return true, nil
-	} else {
-		return false, nil
-	}
+	// Devuelve el usuario
+	return user, nil
 }
 
-func validateToken(w http.ResponseWriter, r *http.Request) {
+// Función para validar un token JWT
+func validateTokenString(tokenString string) (UserMongoDB, error) {
+
+	type TokenValidate struct {
+		UserID string `json:"sub"`
+		jwt.StandardClaims
+	}
+
+	tokenClaims := &TokenValidate{}
+	token, err := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return publicKey, nil
+	})
+
+	if err != nil {
+		return UserMongoDB{}, err
+	}
+	if !token.Valid {
+		return UserMongoDB{}, fmt.Errorf("token is not valid")
+	}
+
+	// Obtiene el usuario desde la base de datos de MongoDB
+	userID := tokenClaims.UserID
+	user, err := getUserByID(userID)
+	if err != nil {
+		return UserMongoDB{}, err
+	}
+
+	// Devuelve el usuario
+	return user, nil
+}
+
+func getUserDetails(w http.ResponseWriter, r *http.Request) {
+	// Obtiene el token JWT desde el encabezado "Authorization" de la petición
 	tokenString := r.Header.Get("Authorization")
 	if tokenString == "" {
 		respondWithError(w, http.StatusUnauthorized, "Token de autenticación requerido")
 		return
 	}
-	valid, err := validateToken_(tokenString)
+
+	// Valida el token JWT y obtiene el usuario correspondiente desde la base de datos
+	user, err := validateTokenString(tokenString)
 	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Error al validar el token")
+		respondWithError(w, http.StatusUnauthorized, "Ha ocurrido un error: "+err.Error())
 		return
 	}
-	if !valid {
-		respondWithError(w, http.StatusUnauthorized, "Token invalido")
-		return
-	}
-	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Bienvenido al sistema"})
+
+	// Devuelve el usuario en la respuesta
+	respondWithJSON(w, http.StatusOK, UserMongoDB{Name: user.Name, LastName: user.LastName, Email: user.Email})
 }
 
 // Decodifica el cuerpo de una solicitud HTTP en formato JSON y lo asigna a una estructura dada
