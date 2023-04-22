@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"time"
 
+	"crypto/md5"
+	"encoding/hex"
+
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
@@ -80,12 +83,13 @@ func main() {
 	log.Fatal(http.ListenAndServe(":4000", router))
 }
 
-// Usuario representa la estructura de datos para un usuario
-type Usuario struct {
-	Nombre   string `json:"nombre,omitempty"`
-	Apellido string `json:"apellido,omitempty"`
-	Email    string `json:"email,omitempty"`
-	Password string `json:"password,omitempty"`
+// UserToJson representa la estructura de datos para un usuario
+type UserToJson struct {
+	Name            string `json:"name,omitempty"`
+	LastName        string `json:"lastname,omitempty"`
+	Email           string `json:"email,omitempty"`
+	Password        string `json:"password,omitempty"`
+	ConfirmPassword string `json:"confirm_password,omitempty"`
 }
 
 // Token representa la estructura de datos para un token JWT
@@ -102,9 +106,9 @@ type MongoDBConfig struct {
 
 func mongoDBConfig() MongoDBConfig {
 	return MongoDBConfig{
-		URI:            "mongodb://localhost:27017", // Cambiar por la URL de tu base de datos MongoDB
-		DBName:         "multiple_pdf_database",     // Cambiar por el nombre de tu base de datos
-		CollectionName: "users",                     // Cambiar por el nombre de tu colección
+		URI:            "mongodb://localhost:27017",
+		DBName:         "multiple_pdf_database",
+		CollectionName: "users",
 	}
 }
 func conectarMongoDB() (*mongo.Client, error) {
@@ -135,10 +139,20 @@ func conectarMongoDB() (*mongo.Client, error) {
 
 // Crea un nuevo usuario en la base de datos
 func crearUsuario(w http.ResponseWriter, r *http.Request) {
-	var usuario Usuario
-	err := decodeJSONBody(w, r, &usuario)
+	var user UserToJson
+	err := decodeJSONBody(w, r, &user)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Datos inválidos")
+		return
+	}
+
+	if user.Name == "" || user.LastName == "" || user.Email == "" || user.Password == "" || user.ConfirmPassword == "" {
+		respondWithError(w, http.StatusBadRequest, "Todos los campos son obligatorios!")
+		return
+	}
+
+	if user.Password != user.ConfirmPassword {
+		respondWithError(w, http.StatusBadRequest, "No coinciden las contraseñas")
 		return
 	}
 
@@ -150,9 +164,9 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 	defer client.Disconnect(context.Background())
 
 	collection := client.Database(mongoDBConfig().DBName).Collection(mongoDBConfig().CollectionName)
-	filter := bson.M{"email": usuario.Email}
+	filter := bson.M{"email": user.Email}
 
-	var existingUser Usuario
+	var existingUser UserToJson
 	err = collection.FindOne(context.Background(), filter).Decode(&existingUser)
 
 	if err == nil {
@@ -166,22 +180,25 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Encripta la contraseña antes de guardarla en la base de datos
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(usuario.Password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	usuario.Password = string(hashedPassword)
+	newUser := UserToJson{
+		Name:     user.Name,
+		LastName: user.LastName,
+		Email:    user.Email,
+		Password: string(hashedPassword),
+	}
 
 	// Inserta el usuario en la colección
-	result, err := collection.InsertOne(context.Background(), usuario)
-	fmt.Println("result.InsertedID:")
-	fmt.Println(result.InsertedID)
+	_, err = collection.InsertOne(context.Background(), newUser)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var usuarioCreado Usuario
+	var usuarioCreado UserToJson
 	err = collection.FindOne(context.Background(), filter).Decode(&usuarioCreado)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Email o contraseña incorrectos")
@@ -189,19 +206,20 @@ func crearUsuario(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Retorna el token
-	token, err := generarTokenJWT(usuarioCreado.Email)
+
+	tokenString, err := generarTokenJWT(hashEmail(user.Email))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
 	}
 
 	// Retorna el token JWT
-	respondWithJSON(w, http.StatusOK, Token{Token: token})
+	respondWithJSON(w, http.StatusOK, Token{Token: tokenString})
 }
 
 // Inicia sesión de un usuario y genera un token JWT
 func iniciarSesion(w http.ResponseWriter, r *http.Request) {
-	var usuario Usuario
+	var usuario UserToJson
 	err := decodeJSONBody(w, r, &usuario)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Datos inválidos")
@@ -218,7 +236,7 @@ func iniciarSesion(w http.ResponseWriter, r *http.Request) {
 	// Busca el usuario por email
 	collection := client.Database(mongoDBConfig().DBName).Collection(mongoDBConfig().CollectionName)
 	filter := bson.M{"email": usuario.Email}
-	var resultado Usuario
+	var resultado UserToJson
 	err = collection.FindOne(context.Background(), filter).Decode(&resultado)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Email o contraseña incorrectos")
@@ -326,4 +344,9 @@ func respondWithJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	if err != nil {
 		log.Println("Error al responder con JSON:", err)
 	}
+}
+
+func hashEmail(email string) string {
+	hash := md5.Sum([]byte(email))
+	return hex.EncodeToString(hash[:])
 }
