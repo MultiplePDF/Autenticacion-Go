@@ -364,6 +364,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v interface{}) error
 	// Decodifica el cuerpo de la solicitud en formato JSON
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(v)
+	fmt.Println(decoder.Decode(v))
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Datos inválidos")
 		return err
