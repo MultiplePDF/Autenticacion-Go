@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/md5"
 	"crypto/rsa"
-	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/AndreyHernandezT/serverAuth/database"
 	"github.com/AndreyHernandezT/serverAuth/models"
+	"github.com/AndreyHernandezT/serverAuth/repositories"
 	"github.com/AndreyHernandezT/serverAuth/utils"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
@@ -43,6 +42,7 @@ func init() {
 	if err != nil {
 		log.Fatal("Cannot parce private key")
 	}
+	fmt.Println("Servidor iniciado...")
 }
 
 func main() {
@@ -66,7 +66,6 @@ func main() {
 	// Endpoint para reiniciar contraseña
 	//router.HandleFunc("/reset/{token}", ResetPassword).Methods("POST")
 
-	fmt.Println("Servidor iniciado...")
 	log.Fatal(http.ListenAndServe(":4000", router))
 }
 
@@ -123,7 +122,7 @@ func register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newUser := models.UserMongoDB{
-		ID:        hashEmail(user.Email),
+		ID:        utils.HashEmail(user.Email),
 		Name:      user.Name,
 		Email:     user.Email,
 		Password:  string(hashedPassword),
@@ -146,7 +145,7 @@ func register(w http.ResponseWriter, r *http.Request) {
 
 	// Retorna el token
 
-	tokenString, err := generateTokenJWT(hashEmail(user.Email))
+	tokenString, err := generateTokenJWT(utils.HashEmail(user.Email))
 	if err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
@@ -190,7 +189,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Genera un nuevo token JWT
-	token, err := generateTokenJWT(hashEmail(resultado.Email))
+	token, err := generateTokenJWT(utils.HashEmail(resultado.Email))
 	if err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "Error al generar el token JWT "+err.Error())
 		return
@@ -217,28 +216,6 @@ func generateTokenJWT(userEmail string) (string, error) {
 	return tokenString, nil
 }
 
-func getUserByID(userID string) (models.UserReturn, error) {
-	// Conecta a la base de datos
-	client, err := database.ConectMongoDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer client.Disconnect(context.Background())
-
-	// Busca el usuario por email
-	collection := client.Database(database.MongoDBConfig().DBName).Collection(database.MongoDBConfig().CollectionName)
-	filter := bson.M{"id": userID}
-
-	var user models.UserReturn
-	err = collection.FindOne(context.Background(), filter).Decode(&user)
-	if err != nil {
-		return models.UserReturn{}, err
-	}
-
-	// Devuelve el usuario
-	return user, nil
-}
-
 // Función para validar un token JWT
 func validateTokenString(tokenString string) (models.UserReturn, error) {
 	type TokenValidate struct {
@@ -263,7 +240,7 @@ func validateTokenString(tokenString string) (models.UserReturn, error) {
 
 	// Obtiene el usuario desde la base de datos de MongoDB
 	userID := tokenClaims.UserID
-	user, err := getUserByID(userID)
+	user, err := repositories.GetUserByID(userID)
 	if err != nil {
 		return models.UserReturn{}, err
 	}
@@ -304,9 +281,4 @@ func getUserDetails(w http.ResponseWriter, r *http.Request) {
 
 	// Devuelve el usuario en la respuesta
 	utils.RespondWithJSON(w, http.StatusOK, models.UserReturn{Name: user.Name, Email: user.Email})
-}
-
-func hashEmail(email string) string {
-	hash := md5.Sum([]byte(email))
-	return hex.EncodeToString(hash[:])
 }
