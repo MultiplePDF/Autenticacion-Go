@@ -54,8 +54,11 @@ func main() {
 	// Endpoint para iniciar sesión
 	router.HandleFunc("/auth/login", login).Methods("POST")
 
-	// Endopoint para validar token
+	// Endopoint para devolver un usuario
 	router.HandleFunc("/auth/get-user-details", getUserDetails).Methods("GET")
+
+	// Endopoint para validar token
+	router.HandleFunc("/auth/validate", validateToken).Methods("GET")
 
 	// Endpoint para olvidar contraseña
 	//router.HandleFunc("/forgot", ForgotPassword).Methods("POST")
@@ -70,7 +73,6 @@ func main() {
 // UserToJson representa la estructura de datos para un usuario
 type UserToJson struct {
 	Name            string `json:"name,omitempty"`
-	LastName        string `json:"lastname,omitempty"`
 	Email           string `json:"email,omitempty"`
 	Password        string `json:"password,omitempty"`
 	ConfirmPassword string `json:"confirm_password,omitempty"`
@@ -79,11 +81,16 @@ type UserToJson struct {
 type UserMongoDB struct {
 	ID        string    `json:"id_user,omitempty"`
 	Name      string    `json:"name,omitempty"`
-	LastName  string    `json:"lastname,omitempty"`
 	Email     string    `json:"email,omitempty"`
 	Password  string    `json:"password,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"update_at,omitempty"`
+}
+
+type UserReturn struct {
+	ID    string `json:"id_user,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Email string `json:"email,omitempty"`
 }
 
 // Token representa la estructura de datos para un token JWT
@@ -140,7 +147,7 @@ func register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.Name == "" || user.LastName == "" || user.Email == "" || user.Password == "" || user.ConfirmPassword == "" {
+	if user.Name == "" || user.Email == "" || user.Password == "" || user.ConfirmPassword == "" {
 		respondWithError(w, http.StatusBadRequest, "Todos los campos son obligatorios!")
 		return
 	}
@@ -186,7 +193,6 @@ func register(w http.ResponseWriter, r *http.Request) {
 	newUser := UserMongoDB{
 		ID:        hashEmail(user.Email),
 		Name:      user.Name,
-		LastName:  user.LastName,
 		Email:     user.Email,
 		Password:  string(hashedPassword),
 		CreatedAt: time.Now(),
@@ -279,7 +285,7 @@ func generateTokenJWT(userEmail string) (string, error) {
 	return tokenString, nil
 }
 
-func getUserByID(userID string) (UserMongoDB, error) {
+func getUserByID(userID string) (UserReturn, error) {
 	// Conecta a la base de datos
 	client, err := conectMongoDB()
 	if err != nil {
@@ -291,10 +297,10 @@ func getUserByID(userID string) (UserMongoDB, error) {
 	collection := client.Database(mongoDBConfig().DBName).Collection(mongoDBConfig().CollectionName)
 	filter := bson.M{"id": userID}
 
-	var user UserMongoDB
+	var user UserReturn
 	err = collection.FindOne(context.Background(), filter).Decode(&user)
 	if err != nil {
-		return UserMongoDB{}, err
+		return UserReturn{}, err
 	}
 
 	// Devuelve el usuario
@@ -302,8 +308,7 @@ func getUserByID(userID string) (UserMongoDB, error) {
 }
 
 // Función para validar un token JWT
-func validateTokenString(tokenString string) (UserMongoDB, error) {
-
+func validateTokenString(tokenString string) (UserReturn, error) {
 	type TokenValidate struct {
 		UserID string `json:"sub"`
 		jwt.StandardClaims
@@ -318,21 +323,36 @@ func validateTokenString(tokenString string) (UserMongoDB, error) {
 	})
 
 	if err != nil {
-		return UserMongoDB{}, err
+		return UserReturn{}, err
 	}
 	if !token.Valid {
-		return UserMongoDB{}, fmt.Errorf("token is not valid")
+		return UserReturn{}, fmt.Errorf("token is not valid")
 	}
 
 	// Obtiene el usuario desde la base de datos de MongoDB
 	userID := tokenClaims.UserID
 	user, err := getUserByID(userID)
 	if err != nil {
-		return UserMongoDB{}, err
+		return UserReturn{}, err
 	}
 
 	// Devuelve el usuario
 	return user, nil
+}
+
+func validateToken(w http.ResponseWriter, r *http.Request) {
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		respondWithError(w, http.StatusUnauthorized, "Token de autenticación requerido")
+		return
+	}
+	_, err := validateTokenString(tokenString)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Error al validar el token "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "true"})
 }
 
 func getUserDetails(w http.ResponseWriter, r *http.Request) {
@@ -351,7 +371,7 @@ func getUserDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Devuelve el usuario en la respuesta
-	respondWithJSON(w, http.StatusOK, UserMongoDB{Name: user.Name, LastName: user.LastName, Email: user.Email})
+	respondWithJSON(w, http.StatusOK, UserMongoDB{Name: user.Name, Email: user.Email})
 }
 
 // Decodifica el cuerpo de una solicitud HTTP en formato JSON y lo asigna a una estructura dada
@@ -364,7 +384,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v interface{}) error
 	// Decodifica el cuerpo de la solicitud en formato JSON
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(v)
-	fmt.Println(decoder.Decode(v))
+
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Datos inválidos")
 		return err
