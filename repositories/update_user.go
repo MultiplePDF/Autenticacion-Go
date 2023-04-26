@@ -9,7 +9,19 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func GetUserByID(userID string) (models.UserMongoDB, error) {
+func UpdateUser(user *models.UserMongoDB) error {
+	// Creamos un filtro para buscar el usuario a actualizar
+	filter := bson.M{"id": user.ID}
+
+	// Creamos un documento con los nuevos datos del usuario
+	update := bson.M{
+		"$set": bson.M{
+			"name":      user.Name,
+			"email":     user.Email,
+			"updatedat": user.UpdatedAt,
+		},
+	}
+
 	// Conecta a la base de datos
 	client, err := database.ConectMongoDB()
 	if err != nil {
@@ -17,16 +29,12 @@ func GetUserByID(userID string) (models.UserMongoDB, error) {
 	}
 	defer client.Disconnect(context.Background())
 
-	// Busca el usuario por email
 	collection := client.Database(database.MongoDBConfig().DBName).Collection(database.MongoDBConfig().CollectionName)
-	filter := bson.M{"id": userID}
+	_, err = collection.UpdateOne(context.Background(), filter, update)
 
-	var user models.UserMongoDB
-	err = collection.FindOne(context.Background(), filter).Decode(&user)
 	if err != nil {
-		return models.UserMongoDB{}, err
+		return err
 	}
 
-	// Devuelve el usuario
-	return user, nil
+	return nil
 }

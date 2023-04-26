@@ -60,6 +60,12 @@ func main() {
 	// Endopoint para validar token
 	router.HandleFunc("/auth/validate", validateToken).Methods("GET")
 
+	// Endopoint para devolver id de usuario
+	router.HandleFunc("/auth/get-userid", getUserIDByToken).Methods("GET")
+
+	// Endopoint para actualizar un usuario
+	router.HandleFunc("/auth/user/{id}", updateUser).Methods("GET")
+
 	// Endpoint para olvidar contraseña
 	//router.HandleFunc("/forgot", ForgotPassword).Methods("POST")
 
@@ -217,7 +223,7 @@ func generateTokenJWT(userEmail string) (string, error) {
 }
 
 // Función para validar un token JWT
-func validateTokenString(tokenString string) (models.UserReturn, error) {
+func validateTokenString(tokenString string) (models.UserMongoDB, error) {
 	type TokenValidate struct {
 		UserID string `json:"sub"`
 		jwt.StandardClaims
@@ -232,23 +238,24 @@ func validateTokenString(tokenString string) (models.UserReturn, error) {
 	})
 
 	if err != nil {
-		return models.UserReturn{}, err
+		return models.UserMongoDB{}, err
 	}
 	if !token.Valid {
-		return models.UserReturn{}, fmt.Errorf("token is not valid")
+		return models.UserMongoDB{}, fmt.Errorf("token is not valid")
 	}
 
 	// Obtiene el usuario desde la base de datos de MongoDB
 	userID := tokenClaims.UserID
 	user, err := repositories.GetUserByID(userID)
 	if err != nil {
-		return models.UserReturn{}, err
+		return models.UserMongoDB{}, err
 	}
 
 	// Devuelve el usuario
 	return user, nil
 }
 
+// Valida si el token es válido
 func validateToken(w http.ResponseWriter, r *http.Request) {
 	tokenString := r.Header.Get("Authorization")
 	if tokenString == "" {
@@ -264,6 +271,7 @@ func validateToken(w http.ResponseWriter, r *http.Request) {
 	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "true"})
 }
 
+// Devuelve a un usuario
 func getUserDetails(w http.ResponseWriter, r *http.Request) {
 	// Obtiene el token JWT desde el encabezado "Authorization" de la petición
 	tokenString := r.Header.Get("Authorization")
@@ -280,5 +288,62 @@ func getUserDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Devuelve el usuario en la respuesta
+	utils.RespondWithJSON(w, http.StatusOK, models.UserReturn{Name: user.Name, Email: user.Email})
+}
+
+// Devuelve el ID de un usuario según el token
+func getUserIDByToken(w http.ResponseWriter, r *http.Request) {
+	// Obtiene el token JWT desde el encabezado "Authorization" de la petición
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Token de autenticación requerido")
+		return
+	}
+
+	// Valida el token JWT y obtiene el usuario correspondiente desde la base de datos
+	user, err := validateTokenString(tokenString)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Ha ocurrido un error: "+err.Error())
+		return
+	}
+
+	// Devuelve el usuario en la respuesta
+	utils.RespondWithJSON(w, http.StatusOK, models.UserReturn{ID: user.ID})
+}
+
+// Actualiza el nombre y email de un usuario
+func updateUser(w http.ResponseWriter, r *http.Request) {
+	// Obtenemos el ID del usuario a editar desde los parámetros de la URL
+	vars := mux.Vars(r)
+	userID := vars["id"]
+
+	var user models.UserMongoDB
+	err := utils.DecodeJSONBody(w, r, &user)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusBadRequest, "Datos inválidos")
+		return
+	}
+
+	existingUser, err := repositories.GetUserByID(userID)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	if user.Name != "" {
+		existingUser.Name = user.Name
+	}
+	if user.Email != "" {
+		existingUser.Email = user.Email
+	}
+
+	existingUser.UpdatedAt = time.Now()
+
+	err = repositories.UpdateUser(&existingUser)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Error updating user")
+		return
+	}
+
 	utils.RespondWithJSON(w, http.StatusOK, models.UserReturn{Name: user.Name, Email: user.Email})
 }
