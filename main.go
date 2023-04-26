@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AndreyHernandezT/serverAuth/database"
@@ -64,7 +65,7 @@ func main() {
 	router.HandleFunc("/auth/get-userid", getUserIDByToken).Methods("GET")
 
 	// Endopoint para actualizar un usuario
-	router.HandleFunc("/auth/user/{id}", updateUser).Methods("GET")
+	router.HandleFunc("/auth/update-user", updateUser).Methods("GET")
 
 	// Endpoint para olvidar contraseña
 	//router.HandleFunc("/forgot", ForgotPassword).Methods("POST")
@@ -83,6 +84,8 @@ func register(w http.ResponseWriter, r *http.Request) {
 		utils.RespondWithError(w, http.StatusBadRequest, "Datos inválidos")
 		return
 	}
+
+	user.Email = strings.ToLower(user.Email)
 
 	if user.Name == "" || user.Email == "" || user.Password == "" || user.ConfirmPassword == "" {
 		utils.RespondWithError(w, http.StatusBadRequest, "Todos los campos son obligatorios!")
@@ -313,18 +316,28 @@ func getUserIDByToken(w http.ResponseWriter, r *http.Request) {
 
 // Actualiza el nombre y email de un usuario
 func updateUser(w http.ResponseWriter, r *http.Request) {
-	// Obtenemos el ID del usuario a editar desde los parámetros de la URL
-	vars := mux.Vars(r)
-	userID := vars["id"]
+	// Obtiene el token JWT desde el encabezado "Authorization" de la petición
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Token de autenticación requerido")
+		return
+	}
+
+	// Valida el token JWT y obtiene el usuario correspondiente desde la base de datos
+	existingUser, err := validateTokenString(tokenString)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Ha ocurrido un error: "+err.Error())
+		return
+	}
 
 	var user models.UserMongoDB
-	err := utils.DecodeJSONBody(w, r, &user)
+	err = utils.DecodeJSONBody(w, r, &user)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusBadRequest, "Datos inválidos")
 		return
 	}
 
-	existingUser, err := repositories.GetUserByID(userID)
+	existingUser, err = repositories.GetUserByID(existingUser.ID)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusNotFound, "User not found")
 		return
