@@ -288,7 +288,7 @@ func getUserDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Devuelve el usuario en la respuesta
-	utils.RespondWithJSON(w, http.StatusOK, models.UserReturn{Name: user.Name, Email: user.Email})
+	utils.RespondWithJSON(w, http.StatusOK, models.UserMongoDB{Name: user.Name, Email: user.Email, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt})
 }
 
 // Devuelve el ID de un usuario según el token
