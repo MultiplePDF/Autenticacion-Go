@@ -286,7 +286,6 @@ func getUserDetails(w http.ResponseWriter, r *http.Request) {
 		utils.RespondWithError(w, http.StatusUnauthorized, "Ha ocurrido un error: "+err.Error())
 		return
 	}
-
 	// Devuelve el usuario en la respuesta
 	utils.RespondWithJSON(w, http.StatusOK, models.UserMongoDB{Name: user.Name, Email: user.Email, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt})
 }
