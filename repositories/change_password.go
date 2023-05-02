@@ -9,14 +9,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func UpdateUser(user *models.UserMongoDB) error {
+func ChangePasswordDB(user *models.UserMongoDB) error {
 	// Creamos un filtro para buscar el usuario a actualizar
 	filter := bson.M{"id": user.ID}
 
 	// Creamos un documento con los nuevos datos del usuario
 	update := bson.M{
 		"$set": bson.M{
-			"name":      user.Name,
+			"password":  user.Password,
 			"updatedat": user.UpdatedAt,
 		},
 	}

@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AndreyHernandezT/serverAuth/database"
@@ -64,13 +65,13 @@ func main() {
 	router.HandleFunc("/auth/get-userid", getUserIDByToken).Methods("GET")
 
 	// Endopoint para actualizar un usuario
-	router.HandleFunc("/auth/user/{id}", updateUser).Methods("GET")
+	router.HandleFunc("/auth/update-user", updateUser).Methods("PUT")
 
 	// Endpoint para olvidar contraseña
-	//router.HandleFunc("/forgot", ForgotPassword).Methods("POST")
+	//router.HandleFunc("/forgot-password", forgotPassword).Methods("POST")
 
-	// Endpoint para reiniciar contraseña
-	//router.HandleFunc("/reset/{token}", ResetPassword).Methods("POST")
+	// Endpoint para cambiar contraseña
+	router.HandleFunc("/auth/change-password", changePassword).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(":4000", router))
 }
@@ -83,6 +84,8 @@ func register(w http.ResponseWriter, r *http.Request) {
 		utils.RespondWithError(w, http.StatusBadRequest, "Datos inválidos")
 		return
 	}
+
+	user.Email = strings.ToLower(user.Email)
 
 	if user.Name == "" || user.Email == "" || user.Password == "" || user.ConfirmPassword == "" {
 		utils.RespondWithError(w, http.StatusBadRequest, "Todos los campos son obligatorios!")
@@ -312,18 +315,28 @@ func getUserIDByToken(w http.ResponseWriter, r *http.Request) {
 
 // Actualiza el nombre y email de un usuario
 func updateUser(w http.ResponseWriter, r *http.Request) {
-	// Obtenemos el ID del usuario a editar desde los parámetros de la URL
-	vars := mux.Vars(r)
-	userID := vars["id"]
+	// Obtiene el token JWT desde el encabezado "Authorization" de la petición
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Token de autenticación requerido")
+		return
+	}
+
+	// Valida el token JWT y obtiene el usuario correspondiente desde la base de datos
+	existingUser, err := validateTokenString(tokenString)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Ha ocurrido un error: "+err.Error())
+		return
+	}
 
 	var user models.UserMongoDB
-	err := utils.DecodeJSONBody(w, r, &user)
+	err = utils.DecodeJSONBody(w, r, &user)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusBadRequest, "Datos inválidos")
 		return
 	}
 
-	existingUser, err := repositories.GetUserByID(userID)
+	existingUser, err = repositories.GetUserByID(existingUser.ID)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusNotFound, "User not found")
 		return
@@ -331,9 +344,6 @@ func updateUser(w http.ResponseWriter, r *http.Request) {
 
 	if user.Name != "" {
 		existingUser.Name = user.Name
-	}
-	if user.Email != "" {
-		existingUser.Email = user.Email
 	}
 
 	existingUser.UpdatedAt = time.Now()
@@ -345,4 +355,72 @@ func updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, models.UserReturn{Name: user.Name, Email: user.Email})
+}
+
+// Devuelve el ID de un usuario según el token
+func changePassword(w http.ResponseWriter, r *http.Request) {
+	// Obtiene el token JWT desde el encabezado "Authorization" de la petición
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Token de autenticación requerido")
+		return
+	}
+
+	// Valida el token JWT y obtiene el usuario correspondiente desde la base de datos
+	existingUser, err := validateTokenString(tokenString)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusUnauthorized, "Ha ocurrido un error: "+err.Error())
+		return
+	}
+
+	var newPassword models.NewPassword
+	err = utils.DecodeJSONBody(w, r, &newPassword)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusBadRequest, "Datos inválidos")
+		return
+	}
+
+	existingUser, err = repositories.GetUserByID(existingUser.ID)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	if newPassword.ActualPassword == "" || newPassword.Password == "" || newPassword.ConfirmPassword == "" {
+		utils.RespondWithError(w, http.StatusBadRequest, "Todos los campos son obligatorios!")
+		return
+	}
+
+	if len(newPassword.Password) < 8 {
+		utils.RespondWithError(w, http.StatusBadRequest, "La contraseña debe tener más de 8 caracteres")
+		return
+	}
+
+	if newPassword.Password != newPassword.ConfirmPassword {
+		utils.RespondWithError(w, http.StatusBadRequest, "No coinciden las contraseñas")
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(existingUser.Password), []byte(newPassword.ActualPassword))
+	if err != nil {
+		utils.RespondWithError(w, http.StatusUnauthorized, "La contraseña no coincide")
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword.Password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	existingUser.Password = string(hashedPassword)
+
+	existingUser.UpdatedAt = time.Now()
+
+	err = repositories.UpdateUser(&existingUser)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Error updating user")
+		return
+	}
+
+	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "Contraseña cambiada correctamente"})
 }
