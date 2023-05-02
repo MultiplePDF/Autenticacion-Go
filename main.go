@@ -442,14 +442,19 @@ func forgotPassword(w http.ResponseWriter, r *http.Request) {
 		utils.RespondWithError(w, http.StatusNotFound, "User not found")
 		return
 	}
-	newPassword, err := uuid.NewV4()
+	newPassword := uuid.NewV4().String()
 	if err != nil {
 		fmt.Printf("Something went wrong: %s", err)
 		return
 	}
-	fmt.Printf("UUIDv4: %s\n", newPassword)
 	existingUser.Password = newPassword
 	existingUser.UpdatedAt = time.Now()
 
-	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "Correo enviado, revisa tu bandeja de entrada."})
+	err = repositories.ChangePasswordDB(&existingUser)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Error updating user")
+		return
+	}
+
+	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "Se genero un correo con la nueva contraseña, revisa tu bandeja de entrada o spam."})
 }
