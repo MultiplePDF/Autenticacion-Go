@@ -416,7 +416,7 @@ func changePassword(w http.ResponseWriter, r *http.Request) {
 
 	existingUser.UpdatedAt = time.Now()
 
-	err = repositories.UpdateUser(&existingUser)
+	err = repositories.ChangePasswordDB(&existingUser)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "Error updating user")
 		return
