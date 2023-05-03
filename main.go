@@ -443,10 +443,7 @@ func forgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	newPassword := uuid.NewV4().String()
-	if err != nil {
-		fmt.Printf("Something went wrong: %s", err)
-		return
-	}
+
 	existingUser.Password = newPassword
 	existingUser.UpdatedAt = time.Now()
 
@@ -456,5 +453,7 @@ func forgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "Se genero un correo con la nueva contraseña, revisa tu bandeja de entrada o spam."})
+	response := utils.SendEmail(existingUser.Email, newPassword)
+
+	utils.RespondWithJSON(w, http.StatusOK, response)
 }

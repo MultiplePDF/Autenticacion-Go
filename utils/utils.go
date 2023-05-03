@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/smtp"
 )
 
 // Responde con datos en formato JSON
@@ -46,4 +47,24 @@ func DecodeJSONBody(w http.ResponseWriter, r *http.Request, v interface{}) error
 	}
 
 	return nil
+}
+
+func SendEmail(email string, tempPassword string) map[string]string {
+	smtpServer := "smtp.office365.com"
+	auth := smtp.PlainAuth("", "multiple.pdf@outlook.com", "multiplepd*/", smtpServer)
+	from := "multiple.pdf@outlook.com"
+	to := []string{email}
+	subject := "Password reset request"
+	body := "Your temporary password is: " + tempPassword + "\n\n" +
+		"Please click on the following link to reset your password:\n\n" +
+		"https://mywebsite.com/reset-password"
+	message := []byte("To: " + email + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"\r\n" +
+		body + "\r\n")
+	err := smtp.SendMail(smtpServer+":587", auth, from, to, message)
+	if err != nil {
+		return map[string]string{"error": err.Error()}
+	}
+	return map[string]string{"message": "Se genero un correo con la nueva contraseña, revisa tu bandeja de entrada o spam."}
 }
