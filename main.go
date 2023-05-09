@@ -444,7 +444,12 @@ func forgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	newPassword := uuid.NewV4().String()
 
-	existingUser.Password = newPassword
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	existingUser.Password = string(hashedPassword)
 	existingUser.UpdatedAt = time.Now()
 
 	err = repositories.ChangePasswordDB(&existingUser)
@@ -453,7 +458,11 @@ func forgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := utils.SendEmail(existingUser.Email, newPassword)
+	err = utils.SendEmail(existingUser.Email, newPassword)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Error send email")
+		return
+	}
 
-	utils.RespondWithJSON(w, http.StatusOK, response)
+	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "Se genero un correo con una contraseña contraseña temporal, revisa tu bandeja de entrada o spam."})
 }
