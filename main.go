@@ -16,6 +16,7 @@ import (
 	"github.com/AndreyHernandezT/serverAuth/utils"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
+	uuid "github.com/satori/go.uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
@@ -68,7 +69,7 @@ func main() {
 	router.HandleFunc("/auth/update-user", updateUser).Methods("PUT")
 
 	// Endpoint para olvidar contraseña
-	//router.HandleFunc("/forgot-password", forgotPassword).Methods("POST")
+	router.HandleFunc("/auth/forgot-password", forgotPassword).Methods("POST")
 
 	// Endpoint para cambiar contraseña
 	router.HandleFunc("/auth/change-password", changePassword).Methods("POST")
@@ -416,11 +417,52 @@ func changePassword(w http.ResponseWriter, r *http.Request) {
 
 	existingUser.UpdatedAt = time.Now()
 
-	err = repositories.UpdateUser(&existingUser)
+	err = repositories.ChangePasswordDB(&existingUser)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "Error updating user")
 		return
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "Contraseña cambiada correctamente"})
+}
+
+// Envia un correo al usuario para que cambie su contraseña
+func forgotPassword(w http.ResponseWriter, r *http.Request) {
+	// Obtiene el token JWT desde el encabezado "Authorization" de la petición
+
+	var forgotPasswordModel models.ForgotPassword
+	err := utils.DecodeJSONBody(w, r, &forgotPasswordModel)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusBadRequest, "Datos inválidos")
+		return
+	}
+
+	existingUser, err := repositories.GetUserByEmail(forgotPasswordModel.Email)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusNotFound, "User not found")
+		return
+	}
+	newPassword := uuid.NewV4().String()
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	existingUser.Password = string(hashedPassword)
+	existingUser.UpdatedAt = time.Now()
+
+	err = repositories.ChangePasswordDB(&existingUser)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Error updating user")
+		return
+	}
+
+	err = utils.SendEmail(existingUser.Email, newPassword)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Error send email")
+		return
+	}
+
+	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"message": "Se genero un correo con una contraseña contraseña temporal, revisa tu bandeja de entrada o spam."})
 }

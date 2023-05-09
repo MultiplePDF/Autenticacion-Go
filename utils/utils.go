@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	"gopkg.in/gomail.v2"
 )
 
 // Responde con datos en formato JSON
@@ -45,5 +47,25 @@ func DecodeJSONBody(w http.ResponseWriter, r *http.Request, v interface{}) error
 		return err
 	}
 
+	return nil
+}
+
+func SendEmail(email string, tempPassword string) error {
+
+	msg := gomail.NewMessage()
+	msg.SetHeader("From", "gosoylinda@gmail.com")
+	msg.SetHeader("To", email)
+	msg.SetHeader("Subject", "Contraseña temporal generada")
+	body := "<p>Tu contraseña temporal es :<p>\n\n <strong><code>" + tempPassword + "</code></strong> \n\n" +
+		"<p>Inicia sesión con esta contraseña para ingresar. Recuerda cambiar la contraseña inmediatamente.</p>" +
+		"<p><a href='https://cliente1.bucaramanga.upb.edu.co/SignIn'>https://cliente1.bucaramanga.upb.edu.co/SignIn</a>"
+	msg.SetBody("text/html", body)
+
+	n := gomail.NewDialer("smtp.gmail.com", 587, "gosoylinda@gmail.com", "rrrxpbtcdldkhhgm")
+
+	// Send the email
+	if err := n.DialAndSend(msg); err != nil {
+		return err
+	}
 	return nil
 }
